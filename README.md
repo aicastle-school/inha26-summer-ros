@@ -1,4 +1,4 @@
-# **Limo Pro (12/24)**
+# **Limo Pro**
 
 # \[1\] Limo Pro 소개
 
