@@ -45,4 +45,82 @@
 6. ubuntu 아이디 및 패스워드 입력 후 접속  
 
    <img src="images/image9.png" width="600">  
+7. CompressedImage가 나오지 않을때 
 
+```python
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image, CompressedImage
+from cv_bridge import CvBridge
+import cv2
+
+class ImageCompressorNode(Node):
+    def __init__(self):
+        super().__init__('image_compressor_node')
+        
+        # OpenCV 변환 브릿지
+        self.bridge = CvBridge()
+        
+        # 압축 품질 설정 (1~100, 낮을수록 용량 작고 화질 나쁨)
+        self.jpeg_quality = 30
+        
+        # 원본 이미지 구독 (Subscribe)
+        self.subscription = self.create_subscription(
+            Image,
+            '/camera/color/image_raw',
+            self.image_callback,
+            10)
+            
+        # 압축 이미지 발행 (Publish)
+        self.publisher = self.create_publisher(
+            CompressedImage,
+            '/camera/color/image_raw/compressed',
+            10)
+            
+        self.get_logger().info('Image Compressor Node가 시작되었습니다.')
+        self.get_logger().info(f'타겟 토픽: /camera/color/image_raw -> 압축 품질: {self.jpeg_quality}%')
+
+    def image_callback(self, msg):
+        try:
+            # 1. ROS Image 메시지를 OpenCV 이미지(numpy 배열)로 변환
+            cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            
+            # 2. OpenCV를 이용해 JPEG 포맷으로 압축
+            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality]
+            result, encimg = cv2.imencode('.jpg', cv_image, encode_param)
+            
+            if not result:
+                self.get_logger().error("이미지 압축에 실패했습니다.")
+                return
+
+            # 3. CompressedImage 메시지 생성 및 데이터 복사
+            compressed_msg = CompressedImage()
+            compressed_msg.header = msg.header  # 원본 이미지의 시간, 프레임 정보 유지
+            compressed_msg.format = "jpeg"
+            compressed_msg.data = encimg.tobytes() # 압축된 바이트 데이터 삽입
+            
+            # 4. 압축된 이미지 발행
+            self.publisher.publish(compressed_msg)
+            
+        except Exception as e:
+            self.get_logger().error(f'콜백 처리 중 오류 발생: {str(e)}')
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = ImageCompressorNode()
+    
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        node.get_logger().info('사용자에 의해 노드가 종료됩니다.')
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
