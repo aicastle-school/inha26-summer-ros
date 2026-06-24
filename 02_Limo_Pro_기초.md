@@ -55,7 +55,6 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image, CompressedImage
 from cv_bridge import CvBridge
-import cv2
 
 class ImageCompressorNode(Node):
     def __init__(self):
@@ -63,9 +62,6 @@ class ImageCompressorNode(Node):
         
         # OpenCV 변환 브릿지
         self.bridge = CvBridge()
-        
-        # 압축 품질 설정 (1~100, 낮을수록 용량 작고 화질 나쁨)
-        self.jpeg_quality = 30
         
         # 원본 이미지 구독 (Subscribe)
         self.subscription = self.create_subscription(
@@ -81,26 +77,19 @@ class ImageCompressorNode(Node):
             10)
             
         self.get_logger().info('Image Compressor Node가 시작되었습니다.')
-        self.get_logger().info(f'타겟 토픽: /camera/color/image_raw -> 압축 품질: {self.jpeg_quality}%')
+        self.get_logger().info('타겟 토픽: /camera/color/image_raw -> CvBridge 변환 후 즉시 발행')
 
     def image_callback(self, msg):
         try:
-            # 1. ROS Image 메시지를 OpenCV 이미지(numpy 배열)로 변환
+            # 1. ROS Image 메시지를 OpenCV 이미지로 변환 (bgr8 포맷)
             cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
             
-            # 2. OpenCV를 이용해 JPEG 포맷으로 압축
-            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality]
-            result, encimg = cv2.imencode('.jpg', cv_image, encode_param)
+            # 2. CvBridge를 사용하여 곧바로 CompressedImage 메시지로 변환
+            # dst_format을 'jpeg'로 지정하면 내부에서 자동 압축됩니다.
+            compressed_msg = self.bridge.cv2_to_compressed_imgmsg(cv_image, dst_format='jpeg')
             
-            if not result:
-                self.get_logger().error("이미지 압축에 실패했습니다.")
-                return
-
-            # 3. CompressedImage 메시지 생성 및 데이터 복사
-            compressed_msg = CompressedImage()
-            compressed_msg.header = msg.header  # 원본 이미지의 시간, 프레임 정보 유지
-            compressed_msg.format = "jpeg"
-            compressed_msg.data = encimg.tobytes() # 압축된 바이트 데이터 삽입
+            # 3. 원본 이미지의 헤더(타임스탬프, 프레임 ID)를 그대로 동기화
+            compressed_msg.header = msg.header
             
             # 4. 압축된 이미지 발행
             self.publisher.publish(compressed_msg)
